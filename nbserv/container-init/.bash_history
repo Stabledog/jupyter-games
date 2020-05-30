@@ -29,3 +29,27 @@ jupyter notebook --notebook-dir=/opt/notebooks --ip='*' --port=8888 --no-browser
 jupyter notebook --notebook-dir=/notebooks --ip='*' --port=8888 --no-browser --allow-root
 #1590838632
 exit
+#1590839357
+ps -ef
+#1590839358
+ps
+#1590839364
+history
+#1590839371
+jupyter notebook --notebook-dir=/notebooks --ip='*' --port=8888 --no-browser --allow-root
+#1590839420
+exit
+#1590839599
+history
+#1590839628
+lcear
+#1590839629
+clear
+#1590839633
+wget
+#1590839643
+wget http://127.0.0.1:8888/
+#1590839603
+jupyter notebook --notebook-dir=/notebooks --ip='*' --port=8888 --no-browser --allow-root
+#1590839761
+exit
