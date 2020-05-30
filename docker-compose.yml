@@ -1,3 +1,5 @@
+# Run:
+#   docker-compose run --rm --service-ports nbserv /root/bin/run-jupyter-notebook.sh
 version: '3.5'
 
 services:
@@ -9,4 +11,5 @@ services:
             - ./:/app
         ports:
             - 8888:8888
-
+        stdin_open: true
+        tty: true
