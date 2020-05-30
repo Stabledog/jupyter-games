@@ -1,0 +1,482 @@
+# vim: filetype=sh :
+
+
+
+if [[ -n $CUSTOM_SHELL ]]; then
+    # We expect bash to come from our build:
+    if [[ `which bash` != ${CUSTOM_SHELL} ]]; then
+        PATH=$(dirname ${CUSTOM_SHELL}):$PATH
+    fi
+fi
+
+function init_sh_tools {
+    # Platform-dependent tools detection (dang you, MacOS!):
+    eval $(
+        PATH=/opt/bb/bin:/usr/local/bin:/usr/bin:/bin
+        for tool in Realpath.realpath Sed.sed Uname.uname; do
+            tv=${tool#*.}
+            tp=$(which $tv)
+            [[ -z $tp ]] && { echo "ERROR: can't find $tv in $PATH" >&2; continue; }
+            echo "${tool%.*}=$tp;"
+        done
+    )
+}
+
+init_sh_tools
+
+# set_bashdebug_mode is a function that's useful for debugging shell commands+script in general:
+[[ -f ~/bin/set_bashdebug_mode ]] && source ~/bin/set_bashdebug_mode
+
+# Outer code can define notBash=true to disable non-posix bashisms:
+if [[ ! -z $notBash ]] && $notBash; then
+    notBash=true; isBash=false
+    xlocal=""  # ksh doesn't allow 'local'
+else
+    notBash=false; isBash=true
+    xlocal=local
+fi
+
+
+[[ -z $LmHome ]] && export LmHome=$HOME
+
+alias pathadd=$LmHome/bin/pathadd
+
+# The ~/projects dir should be a symlink to a working root appropriate for
+# source controlled and/or toolchain-built projects.  An mbig is a good candidate,
+# or /c/Projects on a WSL environment, or /var/Projects on a Mac.  The HOME
+# dir itself is not an ideal place for the storage, in most cases.  On a
+# Docker container, /root/projects can point to a mounted volume to satisfy
+# this need:
+if [[ -d ~/projects ]]; then
+    ProjectsHome=$( cd ~/projects; $Realpath . )
+else
+    ProjectsHome=${ProjectsHome:-$HOME/projects}
+    echo "WARNING: no ~/projects dir: this should be a symlink to mbig, /c/Projects, /var/projects, or similar general project root.  \$ProjectsHome remains unresolved." >&2
+fi
+export ProjectsHome
+
+
+function isSunos {
+    [[ $( $Uname ) == "SunOS" ]]
+}
+
+
+function errExit {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+export -f errExit
+
+
+
+#----------------------------------------------------------------
+#  Shell identification
+#
+function shell_identify {
+	export CYGWIN=false
+	export MACOSX=false
+	if $notBash; then
+		eval "function shopt {
+			 doNothing=true
+			# turn shopt into nothingness if not bash
+		}"
+	fi
+
+	[[ -f /Cygwin.bat ]] && CYGWIN=true
+
+	[[ -d /Applications/Preview.app ]] && MACOSX=true
+    [[ $( $Uname ) == Darwin ]] && MACOSX=true
+
+	# We treat Mobaterm as cygwin too:
+    [[ -d /home/mobaxterm ]]  && CYGWIN=true
+
+	# If not running interactively, don't do anything
+	if [[ ! -t 0 ]]; then
+		return
+	fi
+}
+
+
+shell_identify
+
+function fix_PATH {
+    origPath=$PATH
+    #echo "fix_PATH invoked" >&2
+    # These dirs are listed from most-general to most-specific. This wipes out any previous path, and  inserts
+    # the most-specific dirs ahead of the least-specfic:
+    for xd in /bin /sbin /usr/bin /usr/local/bin /usr/sbin /usr/local/bin /bb/bin /opt/swt/bin /opt/bb/bin  ${LmHome}/.local/bin ${LmHome}/mylibs/${lmPlatform}/bin $LmHome/bin $LmHome/binl  $LmHome/bin/localsys $cygPathAdd; do
+        if [[ -d $xd ]]; then
+            PATH=$xd:$PATH
+        fi
+    done
+
+    PATH=$($LmHome/bin/path_undupe $PATH:$origPath)
+    unset origPath
+}
+
+#[[ -f ~/.taskrc/no-fix_PATH ]] || fix_PATH  # Also call this at the end of bashrc
+
+#----------------------------------------------------------------
+
+
+alias which='type -p '
+
+
+umask 0022
+IGNOREEOF="3"   # Don't close interactive shell for ^D
+
+
+function ptop {
+    # Run top, but filter on a specific command line string, e.g.:
+    #
+    #     $  ptop my_busy_proc
+    #
+
+    eval "$xlocal cmd $1"
+    top -p $(pgrep ${cmd} | head -n 19 | tr '\n' ',')0
+}
+
+
+function histrc {
+
+	# don't put duplicate lines in the history. See bash(1) for more options
+	# ... or force ignoredups and ignorespace
+	HISTCONTROL=ignoredups:ignorespace
+	HISTTIMEFORMAT="%F %T "
+
+
+	# append to the history file, don't overwrite it
+	if $isBash; then
+        shopt -s histappend
+        shopt -s histverify # Load history events for editing rather than immediate execution
+    fi
+	# for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
+	HISTSIZE=10000
+	HISTFILESIZE=20000
+
+	alias hist='history '
+	alias hisg='history | grep '
+
+	# PROMPT_COMMAND is a command that bash executes each time it prepares to
+	# issue the user prompt. It's used to customize the prompt in various ways,
+	# or to perform shell maintenance activities.  In this case, we're using
+	# it to update the stored command history:
+	export PROMPT_COMMAND="history -a"
+
+	# Write a note to the bash history.  -l means 'list histNotes'.
+	function histNote {
+		if [[ "$1" == "-l" ]]; then
+			history | /bin/egrep -B 1 -A 1 '_h~[n_]' | $Sed 's/_h~[n_] //'
+		else
+            echo -n "Enter your shell history note, finish with empty line: "
+			history -s "_h~n [$PWD]:"
+			history -s "_h~n ---------------------------------"
+            while read; do
+                [[ -z $REPLY ]] && return
+                history -s "_h~_     $REPLY"
+            done
+		fi
+	}
+	alias hn='histNote '
+}
+
+histrc
+
+
+TERM=xterm-256color
+
+function initLsStuff {
+	# some more ls aliases
+	alias ll='ls -alF'
+	alias la='ls -A'
+	alias lra='ls -lrta'
+	alias l='ls -CF'
+	alias l1='ls -1'
+	alias lr='ls -lrt'
+	alias lg='ls -la | egrep '
+	alias lsg='ls -la | egrep '
+
+	if $MACOSX; then   # Mac doesn't have dircolors
+		CLICOLOR=YES
+		alias ls='ls -G'
+	elif which dircolors &>/dev/null; then
+		eval $(/usr/bin/dircolors --bourne-shell)
+		alias ls='ls --color=auto '
+	fi
+}
+
+
+initLsStuff
+
+# check the window size after each command and, if necessary,
+# update the values of LINES and COLUMNS.
+if $isBash; then
+    shopt -s checkwinsize
+fi
+
+
+
+
+function initGitStuff {
+
+    # Set this to false elsewhere if you don't want the slight delay of checking
+    # git branches all the time:
+    PS1_INCLUDE_GIT_BRANCH=${PS1_INCLUDE_GIT_BRANCH:-true}
+
+    function parse_git_branch() {
+        if $PS1_INCLUDE_GIT_BRANCH; then
+            git branch 2> /dev/null | $Sed -e '/^[^*]/d' -e 's/* \(.*\)/[\1]/'
+        fi
+     }
+
+    function git_remote_show {
+        local allremotes="$(git remote show)"
+        local remotes="$@"
+        remotes=${remotes:-${allremotes}}  # Get all remotes if caller doesn't specify
+        git remote show ${remotes}
+        printf " ------------\nRepo root is:\n"
+        echo "    $(git-find-root)"
+        git branch -vv
+
+    }
+
+    function git_attributes_init {
+        [[ -d .git ]] || return $(errExit No .git/ here)
+        [[ -f .gitattributes ]] && return $(errExit Already has a .gitattributes here)
+        cp ${LmHome}/bin/gitattributes-template .gitattributes || return $(errExit failed to create .gitattributes)
+        echo ".gitattributes added to $PWD"
+    }
+
+
+
+	alias gs='git status '
+	# Script-worthy git-status: check the branch, parseable output, etc.
+    # See-also: git-dirty
+	alias gc='git commit'
+	alias ga='git add'
+	alias gb='git branch -vv'
+	alias gba='git branch -a -vv'
+	alias gp='git push'
+	alias gpa='git commit -am sync; git push'
+	alias gpull='git pull'
+	alias grs=git_remote_show
+	alias grv='git remote -v'
+	alias gd='git diff'
+	alias gdt='git difftool'
+	alias grv='git remote -v'
+
+    function gitgrep {
+        local pattern="${1:-.*}"
+        shift
+        git ls-files | egrep "${pattern}" "$@"
+    }
+	alias gitg='gitgrep'
+
+	if $isBash; then
+        source ${LmHome}/bin/git-completion.bash &>/dev/null
+    fi
+
+}
+
+initGitStuff
+
+
+# Set the terminal title:
+function title {
+    export title_tail="$*"
+
+    printf '\E]2;%s\E\\' "$title_tail - $(tty)@$(/bin/hostname)"
+}
+
+if [[ -z $title_tail ]]; then
+    title "bash"
+else
+    title "$title_tail"
+fi
+
+function setDisplay {
+    # If the $DISPLAY variable is unset or set wrong, this function attempts
+    # to update it by sourcing ~/tmp/set_DISPLAY.  That script is generated
+    # by makeSet_DISPLAY
+    if [[ $1 != "-f" ]]; then
+        local tgt=$(cat ~/tmp/set_DISPLAY | egrep '^DISPLAY=.*$')
+        tgt=${tgt##DISPLAY=}  # Trim the prefix to leave the value
+        if xset -q 2>&1 1>/dev/null && [[ $tgt == $DISPLAY ]]; then
+            echo "$DISPLAY is already the correct value of DISPLAY. Use -f to force."
+            return
+        fi
+    fi
+    [[ -f ~/tmp/set_DISPLAY ]] || { echo "ERROR: no ~/tmp/set_DISPLAY script found. Run makeSet_DISPLAY in a shell that has a working X11 connection first." ; false; return; }
+    source ~/tmp/set_DISPLAY
+    echo "DISPLAY=$DISPLAY"
+}
+
+alias setdisp='setDisplay'
+
+[[ -f ~/bin/bash_aliases ]] && source ~/bin/bash_aliases
+
+if $CYGWIN; then
+	source ~/bin/cyg/cyg-utils
+	alias sudo="$@"
+fi
+
+if $isBash; then
+	if [ -f /etc/bash_completion ] && ! shopt -oq posix; then
+		. /etc/bash_completion
+	fi
+fi
+
+
+export EDITOR=$(which vim)
+export XEDITOR=$EDITOR
+
+
+# disable flow control for terminal:
+/bin/stty -ixon -ixoff
+
+# Magic space expands !! and !-{n} when you hit spacebar after.  You can also do
+# {cmd-frag}!<space> to expand the last command that started with that frag.
+if $isBash; then
+    set -o vi
+    bind Space:magic-space
+fi
+
+
+if $CYGWIN; then
+    export DISPLAY=:0
+    cygPathAdd=$LmHome/bin/cyg
+fi
+
+function cdmods {
+    # Quick directory up-changes
+    alias .1='cd ../'
+    alias .2='cd ../../'
+    alias .3='cd ../../../'
+    alias .4='cd ../../../../'
+    alias .5='cd ../../../../../'
+    alias .6='cd ../../../../../../'
+
+    # And also, return-to-prev dir:
+    alias .-='cd -'
+    # Print previous dir:
+    alias xcd='(cd -)'
+    # Let's not forget popdir:
+    alias .p='popd'
+}
+
+cdmods
+
+
+# Show ip address of given NIC
+function ip_show {
+	ip addr show dev $1
+}
+
+# If we want a shell to not quit, here's how:
+function no_exit {
+	alias exit="echo 'Sorry, exit is disabled.  Use \"command exit\" if  serious'"
+}
+
+
+
+
+function parse_vim_tail {
+    # If we've shelled-out from vi/vim, we want to know about it to avoid chaos:
+    if [[ -z $VIM ]]; then
+        return
+    fi
+    echo -n '[vi]'
+}
+
+function t_setFancyPs1 {
+    if ${PS1_INCLUDE_GIT_BRANCH:-true}; then
+        local gitBranch=$(parse_git_branch)
+    fi
+PS1='
+\[\033[1;33m\][\D{%Y-%m-%d %H:%M.%S}]\[\033[0m\]  \[\033[1;35m\]\w\[\033[0m\]$(parse_git_branch)
+\[\033[1;36m\][\u.\h]\[\033[0m\]$(parse_vim_tail)$Ps1Tail> '
+}
+
+
+
+t_setFancyPs1
+
+
+
+if $isBash; then
+    shopt -s direxpand
+fi
+
+
+function load_rcs1 {
+    eval "$xlocal rootDir=$1"
+    while read path; do
+        [[ -z $path ]] && continue
+        [[ -f $path ]] || continue
+        echo "$path"
+    done < <( /bin/ls -1 ${rootDir}/.taskrc/ 2>/dev/null | egrep -v '\.vim$' | sort | $Sed -e "s%^%${rootDir}/.taskrc/%" )
+}
+
+function loadTaskrcs {
+    local logfile9=$HOME/.loadtaskrcs.log
+    echo "$(date): loadTaskrcs: trainload initialization of ~/.taskrc" > $logfile9
+
+    function xlog_rc {
+        echo "+++ $@" >> $logfile9
+    }
+
+
+	# Load everything in $HOME/.taskrc, sorting alpha.  Most
+	# of these should be symlinks.
+	while read line; do
+		if [[ -f $line ]]; then
+		    xlog_rc "$line"
+            source $line
+            [[ $? == 0 ]] || { echo "Error sourcing [$line] in loadTaskrcs()" >> $logfile9;  }
+        fi
+    done < <( load_rcs1 "$HOME" )
+
+}
+
+function reset {
+    # The standard reset doesn't restore the cursor, necessarily.
+    setterm -cursor on
+    command reset
+}
+
+# The 'tox' command:
+if $isBash; then
+    source ${LmHome}/bin/tox-py/tox-completion.bash &>/dev/null
+fi
+
+# loop_cmd is very handy:
+[[ -r ${LmHome}/bin/loop_cmd ]] && sourceMe=1 source ${LmHome}/bin/loop_cmd
+alias loop=loop_cmd
+
+
+
+unalias rm 2>/dev/null # If someone aliased my rm, cut it out.
+
+export MYLIBS=${LmHome}/mylibs/$( $Uname )
+alias cd-mylibs='cd $MYLIBS'
+
+#
+# Make tmux use 256 colors so vim highlighting works right:
+alias tmux='tmux -2'
+alias tmux-detach='tmux detach'
+
+
+#[[ -f ~/.taskrc/no-fix_PATH ]] || fix_PATH  # There's another call earlier, too
+
+# Mildly cleaner taskrc.  If there's a .taskrc directory in HOME,
+# just source everything found there.
+if [[ -d $HOME/.taskrc ]] && $isBash; then
+	loadTaskrcs
+fi
+
+# if which path_undupe &>/dev/null; then
+    # PATH=$(path_undupe "$PATH")
+# fi
+
+

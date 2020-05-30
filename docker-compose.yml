@@ -1,0 +1,12 @@
+version: '3.5'
+
+services:
+    nbserv:
+        build: ./nbserv
+        volumes:
+            - ./notebooks:/notebooks
+            - ./nbserv/container-init:/root
+            - ./:/app
+        ports:
+            - 8888:8888
+

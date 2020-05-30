@@ -1,0 +1,59 @@
+# taskrc for tox-py
+# vim: filetype=sh :
+
+#  Use taskrc -h for help on built-in taskrc functions.
+#  To provide help for definitions in this file, add #Help tags, e.g.:
+#    function my_func {
+     #Help: my_func is my first and only function...
+
+Python=$(which python3.8 || which python3.7 || which python3.6 )
+
+unset _to_debug to_debug to_debugz _to_debugz to_run _to_run TOXHOME ToxPython
+
+ToxHome=${taskrc_dir}
+TOXHOME=${ToxHome}
+#Help
+
+source ${ToxHome}/tox-completion.bash
+
+function docker_init_dev {
+    #Help Run this inside docker shell to setup for development
+    echo
+}
+
+function docker_build_tox {
+    #Help build the Docker image for tox-dev
+    cd $taskrc_dir
+    docker build . --tag lesmatheson0/main:tox-dev || return
+    docker run --rm -it  lesmatheson0/main:tox-dev bash
+}
+
+function _to_debug {
+    $Python -m pudb ${ToxHome}/tox_core.py "$@"
+    set +f;
+}
+
+alias to_debug='set -f; _to_debug'
+    #Help
+
+# function _to_debugz {
+    # $Python ${ToxHome}/tox_core.py -z "$@"
+    # set +f;
+# }
+# alias to_debugz='set -f; _to_debugz -z'
+
+function _to_run {
+    $Python ${ToxHome}/tox_core.py "$@"
+    set +f;
+}
+
+
+function to_test_debug {
+    #Help
+    $Python -m pudb ${ToxHome}/test_tox.py "$@"
+}
+
+alias to_run='set -f; _to_run'
+    #Help
+
+
